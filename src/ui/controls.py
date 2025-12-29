@@ -93,12 +93,15 @@ class SingleAnalysisPanel(QWidget):
         self.lbl_res_bw = QLabel("-")
         self.lbl_res_cost = QLabel("-")
         self.lbl_res_time = QLabel("-")
+        self.lbl_res_path = QLabel("-")
+        self.lbl_res_path.setWordWrap(True) # Allow long paths to wrap
         
         res_layout.addRow("Toplam Gecikme:", self.lbl_res_delay)
         res_layout.addRow("Toplam Güven.:", self.lbl_res_rel)
         res_layout.addRow("Kaynak Maliyeti:", self.lbl_res_bw)
         res_layout.addRow("Toplam Maliyet:", self.lbl_res_cost)
         res_layout.addRow("Çalışma Süresi:", self.lbl_res_time)
+        res_layout.addRow("Bulunan Yol:", self.lbl_res_path) # Changed label distinctness
         res_group.setLayout(res_layout)
         self.layout.addWidget(res_group)
         
@@ -181,6 +184,7 @@ class ExperimentPanel(QWidget):
         item_ql = QListWidgetItem("Q-Learning Algoritma")
         item_ql.setCheckState(Qt.CheckState.Unchecked)
         self.list_algos.addItem(item_ql)
+
 
 
 
@@ -301,12 +305,20 @@ class ControlPanel(QWidget):
             self.pnl_single.lbl_res_bw.setText(f"{result.resource_cost:.2f}")
             self.pnl_single.lbl_res_cost.setText(f"{result.total_cost:.4f}")
             self.pnl_single.lbl_res_time.setText(f"{result.execution_time:.4f} s")
+            
+            # Format path
+            if result.path_nodes:
+                path_str = " -> ".join(map(str, result.path_nodes))
+                self.pnl_single.lbl_res_path.setText(path_str)
+            else:
+                 self.pnl_single.lbl_res_path.setText("Yol Yok")
         else:
             self.pnl_single.lbl_res_delay.setText("-")
             self.pnl_single.lbl_res_rel.setText("-")
             self.pnl_single.lbl_res_bw.setText("-")
             self.pnl_single.lbl_res_cost.setText("-")
             self.pnl_single.lbl_res_time.setText("-")
+            self.pnl_single.lbl_res_path.setText("-")
 
     def set_stats(self, num_nodes, num_edges):
         self.pnl_single.lbl_stats.setText(f"Düğümler: {num_nodes} | Kenarlar: {num_edges}")
