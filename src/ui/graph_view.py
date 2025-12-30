@@ -410,12 +410,11 @@ class GraphView(QGraphicsView):
         else:
             self.btn_labels.setIcon(self._create_eye_icon(slashed=True))
 
-    def set_topology(self, topology: NetworkTopology):
+    def set_topology(self, topology: NetworkTopology, positions=None):
         # 1. Disable logic callbacks
         self.topology = None
         
-        # 2. Clear references to items to prevent access during deletion
-        # Clear dictionaries holding references to items
+        # 2. Clear references
         self.node_items.clear()
         self.edge_items.clear()
         
@@ -430,11 +429,11 @@ class GraphView(QGraphicsView):
         self.source_id = None
         self.target_id = None
         
-        # 3. Stop animations (removes packet items safely)
+        # 3. Stop animations
         if hasattr(self, 'stop_packet_animation'):
              self.stop_packet_animation()
              
-        # 4. Now safe to clear scene
+        # 4. Clear scene
         self.scene.clear()
         
         # 5. Set new topology
@@ -443,27 +442,26 @@ class GraphView(QGraphicsView):
         # Generate Starfield
         self._generate_starfield()
         
-        # Kümelerin daha iyi görselleştirilmesi için yay (spring) düzenini kullanarak pozisyonları hesapla
-        # k: Optimal distance between nodes. Increase to spread nodes out.
-        # iterations: Number of iterations simulations.
-        try:
-             # Calculate optimal k based on node count to prevent clustering
-             num_nodes = len(topology.graph.nodes())
-             k_value = 12.0 / (num_nodes ** 0.5) if num_nodes > 0 else None
-             
-             pos = nx.spring_layout(
-                 topology.graph, 
-                  scale=950, 
-                  center=(SCENE_WIDTH/2, SCENE_HEIGHT/2), 
-                 seed=42,
-                 k=k_value,
-                 iterations=20
-             )
-        except:
-             # Fallback if something goes wrong
-             pos = nx.spring_layout(topology.graph, scale=800, center=(SCENE_WIDTH/2, SCENE_HEIGHT/2), seed=42)
-             
-        self.node_positions = {n: (p[0], p[1]) for n, p in pos.items()}
+        # Use Provided Positions or Calculate
+        if positions:
+            self.node_positions = positions
+        else:
+            try:
+                 # Layout Calculation (Fallback)
+                 num_nodes = len(topology.graph.nodes())
+                 k_value = 12.0 / (num_nodes ** 0.5) if num_nodes > 0 else None
+                 
+                 pos = nx.spring_layout(
+                     topology.graph, 
+                      scale=950, 
+                      center=(SCENE_WIDTH/2, SCENE_HEIGHT/2), 
+                     seed=42,
+                     k=k_value,
+                     iterations=20
+                 )
+                 self.node_positions = {n: (p[0], p[1]) for n, p in pos.items()}
+            except:
+                 self.node_positions = {}
         
         self.draw_graph()
 
