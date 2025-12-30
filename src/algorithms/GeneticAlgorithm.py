@@ -4,7 +4,6 @@ from ..core import Metrics as mr
 import random
 import pandas as pd
 
-
 def population(G,source,target,size):
     #popülasyon oluşturma işlemi
     pop_list=[]
@@ -50,33 +49,44 @@ def fitness_calculation(G,pop_list,w_delay=0.5, w_rel=0.1,w_band=0.4,max_delay=1
 
     return pop_fit
 
+def get_parent(pop_fit):#Buradaki amaç çeşitliliği arttırmak.Sadece bir yol dönderir.Yani bir birey seçer.
+    select_temp=[]
+
+    if len(pop_fit)==0:
+        return None
+
+    if len(pop_fit)<=4:
+        select_temp=pop_fit.copy()#4 ve 4 den az ise direkt kopyalama yaptım.
+    else:
+        count = 0
+        while len(select_temp) < 4 and count < 50:  # Burada  rastgele 4 tanesi seçilmeye çalışılıyor.Aynı değerler olmaması çallışılıyor.Çok zorlamasın diye sayaç koydum.
+            temp = random.choice(pop_fit)
+            if temp not in select_temp:
+                select_temp.append(temp)
+            count += 1
+
+        while len(select_temp) < 4:  # Eğer hala seçilmediyse seçilene kadar ekleme yapılıyor.
+            tempeture = random.choice(pop_fit)
+            select_temp.append(tempeture)
+    candidates=[]
+    weights=[]
+
+    for path,fitness in select_temp:#Ruleta mantığı ile seçim yapmak için o yolların ağırlıklarını hesapladım.
+        candidates.append(path)
+        weight=1/(fitness+0.0001)#Payda'da 0'ı önlemek için 0.0001 ekledim.
+        weights.append(weight)
+
+    selected=random.choices(candidates,weights=weights,k=1)#Burada neredeyse aynı fitness değerlerine sahip olanları,seçim şanslarınında aynı seçilmesi için yaptım.
+
+    return selected[0]#seçilenin yolunu dönderdim.
+
 def selection(pop_fit):
-    #Anne baba seçimi.
-    select=[]
-    if len(pop_fit) < 4:#Bu if bloğunda gelen maliyeti hesaplanmış yolların sayısı 4 den az ise direkt anne baba seçimi yapıyor.
-        pop_fit.sort(key=lambda x: x[1])
-        if len(pop_fit) >= 2:
-            return pop_fit[0][0], pop_fit[1][0]
-        elif len(pop_fit) == 1:
-            return pop_fit[0][0], pop_fit[0][0]
-        else:
-            return None, None
-    count=0
-    while len(select)<4 and count<50:#Burada  rastgele 4 tanesi seçilmeye çalışılıyor.Aynı değerler olmaması çallışılıyor.Çok zorlamasın diye sayaç koydum.
-            temp=random.choice(pop_fit)
-            if temp not in select:
-                select.append(temp)
-            count+=1
-    while len(select)<4:#Eğer hala seçilmediyse seçilene kadar ekleme yapılıyor.
-        tempeture=random.choice(pop_fit)
-        select.append(tempeture)
+    father=get_parent(pop_fit)
+    mother=get_parent(pop_fit)
 
-    select.sort(key=lambda x:x[1])#Burada maliyet değerlerini sıraladım.En düşük olan başta olmak kaydıyla.
+    return father,mother
 
-    father=select[0]#Sadece yolu alıyorum.Anne ve baba da.
-    mother=select[1]
 
-    return father[0],mother[0]
 
 def crossover(father,mother):
     if father==None or mother==None:#Anne veya baba yoksa çocuk da yok.
@@ -111,9 +121,9 @@ def multi_mutation(G,child,mutation_rate=0.1):
     if random.random() < mutation_rate and len(child)>2:#Zar atıyorum.Eğer zar tutarsa mutasyon yapılacak.Ayrıyeten çocuğun uzunlu 2 den büyük olması lazım.(S,T)
         temp=None
         zar=random.random()
-        if zar<0.33:
+        if zar<0.60:
             temp=mutation_version1(G,child)
-        elif zar<0.66:
+        elif zar<0.80:
             temp=mutation_version2(G,child)
         else:
             temp=mutation_version3(G,child)
@@ -125,13 +135,13 @@ def multi_mutation(G,child,mutation_rate=0.1):
     else:
         return child
 
-def mutation_version1(G,child):
+def mutation_version1(G,child):#Misal path:1-2-3-4-5-6-7-8-9 dan path mutasyonlu:1-2-3-4-15-6-8-9
     choice = random.randint(1, len(child) - 2)  # Rastgele indeks sayısı aldım.Source ile target ı dahil etmedim.
     temp = child[:choice + 1]  # Seçilen yerde dahil,oraya kadarını aldım.
     temp = rp.tamamla_path(G, temp, child[-1])  # Elifin yaptığı yolu tamamla fonskiyonuyla yolu tamamlattırdım.
     return temp
 
-def mutation_version2(G,child):
+def mutation_version2(G,child):#Misal path:1-2-3-4-5-6-7-8-9 mutasayonlu path:1-24-54-32-34-5-6-7-8-9
     choice = random.randint(1, len(child) - 2)
     child_head=child[:choice + 1]
     tail=child[choice:]
@@ -148,17 +158,17 @@ def mutation_version2(G,child):
     temp=head[:-1]+tail
     return temp
 
-def mutation_version3(G,child):
+def mutation_version3(G,child):#Misal path:1-2-3-4-5-6-7-8-9 mutasyonlu path: 1-2-3-4-54-65-76-32-43-8-9
     if len(child)>4:
         count=0
-        while count<20:
+        while count<10:
             choice1 = random.randint(1, len(child) - 2)
             choice2 = random.randint(1, len(child) - 2)
             if abs(choice1 - choice2) > 1:
                 break
             else:
                 count+=1
-        if count==20:return child
+        if count==10:return child
         firstIndex=min(choice1, choice2)
         lastIndex=max(choice1, choice2)
         temp_head=child[:firstIndex+1]
@@ -169,14 +179,15 @@ def mutation_version3(G,child):
             return mutation_child
         else:return None
     else:
-        return child
+        return None
 
-def genetic_algorithm(G,source,target,demand_mbps,pop_size=50,generations=100,mutation_rate=0.1,w_delay=0.33,w_rel=0.33,w_band=0.34,max_delay=100):
+def genetic_algorithm(G,source,target,demand_mbps,pop_size=50,generations=3000,mutation_rate=0.1,w_delay=0.33,w_rel=0.33,w_band=0.34,max_delay=100):
     #Main kısmı
     population_group=population(G,source,target,pop_size)#Popülasyon oluşturdum.
     global_best_value=99999#En iyi değeri şimdilik 999999 verdim.İleride en iyi değer değişmezse geçiçi olarak mutasyon oranını arttıracağım.
     mutation_value_count=0#Buda bir üstteki kodun sayacı.
     current_mutation_rate=mutation_rate#Mutation rate kaybolmasın diye geçici bir mutation rate yaptım.Maksat eski oranı kullanmak için.Bunla iş yapacağız.
+
     for i in range(generations):#Kaç nesil gitsin maksadıyla oluşturuldu.
         fitness_group = fitness_calculation(G, population_group, w_delay, w_rel, w_band,max_delay,demand_mbps)#fitness değerleri hesaplandı.
         best_generetion=[]#çocuklar için oluşturuldu.
@@ -203,11 +214,14 @@ def genetic_algorithm(G,source,target,demand_mbps,pop_size=50,generations=100,mu
 
         child_count=0#Çocuk while döngüsünde kaç kere eklenmediyse diye sayaç oluşturdum.
         generation_count=0#Eğer best_generation dolmazsa çok zorlamaması açısından sayaç koydum.Her nesil için 1000 kere hak var.
+
         while len(best_generetion)<pop_size and generation_count<1000:
 
             father, mother = selection(fitness_group)#Anne baba seçiliyor.
             child = crossover(father, mother)#Crossoveryapılıyor.
+
             if child is None: continue#Çocuk yoksa devam.
+
             child = multi_mutation(G, child, current_mutation_rate)#Mutasyon yapılıyor,yapılacaksa tabi.
 
             if rp.yol_gecerli_mi(G,child, source,target):#Elifin yazdığı yol geçerli mi fonksiyonunda yolun olup olmadığına bakılıyor.True yada false döndürüyor.
@@ -226,8 +240,9 @@ def genetic_algorithm(G,source,target,demand_mbps,pop_size=50,generations=100,mu
     return fitness_group[0][0]#En iyisi döndürdüm.
 
 
-def read_demands(filename):
 
+
+def read_demands(filename):#Dosya okuma işlemleri
     try:
         df = pd.read_csv(filename, sep=";")
         rows = []
@@ -273,28 +288,46 @@ def main():
 
     successful_routes = 0
 
+    # Ağırlık Ayarları (GA fonksiyonundaki varsayılanlarla AYNI olmalı)
+    # Eğer GA fonksiyonuna dışarıdan ağırlık yollamıyorsan varsayılanları buraya yaz:
+    w_delay = 0.33
+    w_rel = 0.33
+    w_band = 0.34
+
     for i, (src, dst, bw_demand) in enumerate(demands):
         print(f"🔹 Talep {i + 1}: Kaynak {src} -> Hedef {dst} | İstenen Hız: {bw_demand} Mbps")
 
         # Algoritmayı Çağır
         try:
-            best_path = ga.genetic_algorithm(
+            best_path = genetic_algorithm(
                 G,
                 source=src,
                 target=dst,
-                demand_mbps=bw_demand,  # Artık bu parametre işleniyor!
+                demand_mbps=bw_demand,
                 pop_size=50,
-                generations=100,
+                generations=3000,
                 mutation_rate=0.1,
-                max_delay=200  # Gerçek verilerde gecikme yüksek olabilir
+                max_delay=200,
+                # Ağırlıkları buraya da yazabilirsin, garanti olsun:
+                w_delay=w_delay, w_rel=w_rel, w_band=w_band
             )
 
             # Sonuç Kontrolü
             if best_path:
                 print(f"   ✅ YOL BULUNDU: {best_path}")
-                # İstersen detayları yazdır:
-                d = mr.Total_Delay(G, best_path)
-                print(f"   📊 Gecikme: {d:.2f} ms")
+
+                # --- FITNESS HESAPLAMA EKLENTİSİ ---
+                d_val = mr.Total_Delay(G, best_path)
+                r_val = mr.Total_Reliability(G, best_path)
+                b_val = mr.Total_Bandwidth(G, best_path)
+
+                # Fitness Formülü: (Gecikme*w) + (Güvenilirlik*w) + (Bant*w)
+                fitness_score = (d_val * w_delay) + (r_val * w_rel) + (b_val * w_band)
+
+                print(f"   📊 Gecikme: {d_val:.2f} ms")
+                print(f"   🧬 Fitness Skoru: {fitness_score:.4f}")
+                # -----------------------------------
+
                 successful_routes += 1
             else:
                 print("   ❌ UYGUN YOL BULUNAMADI (Kapasite yetersiz veya kopukluk var)")
@@ -309,4 +342,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()

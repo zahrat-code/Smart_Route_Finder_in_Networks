@@ -44,7 +44,7 @@ QPushButton {
     color: white;
     border: 1px solid #2980b9;
     border-radius: 4px;
-    padding: 6px 12px;
+    padding: 5px 10px;
     font-weight: bold;
 }
 
@@ -64,13 +64,14 @@ QPushButton:disabled {
 }
 
 /* Input Fields (SpinBox, ComboBox) */
-QSpinBox, QDoubleSpinBox, QComboBox {
+QSpinBox, QDoubleSpinBox, QComboBox, QAbstractSpinBox {
     background-color: #3d3d3d;
     border: 1px solid #555555;
     border-radius: 4px;
     padding: 4px;
     color: #ffffff;
     selection-background-color: #3498db;
+    min-height: 25px;
 }
 
 QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {

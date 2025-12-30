@@ -1,21 +1,15 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QMessageBox, QApplication, QDialog, QTextEdit, QVBoxLayout
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QMessageBox, QApplication, QDialog, QTextEdit, QVBoxLayout, QTableWidgetItem
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from typing import Optional, List, Tuple
 import random
+import statistics
 
 from ..core.model import NetworkTopology
-# from ..generation.generator import NetworkGenerator
-# New generation logic
 
 from ..generation import generate_graf
-# Algorithms
-# from ..algorithms.base import RoutingAlgorithm
-# from ..algorithms.dummy import DummyAlgorithm
-# from ..algorithms.dijkstra import DijkstraAlgorithm
 from ..algorithms.ACO_Algorithm import AntColonyOptimizer
 from ..algorithms.GeneticAlgorithm import genetic_algorithm
 from ..algorithms.QLearning import QLearningAgent
-# Utilities
 from ..algorithms import path_utilities
 
 from ..experiment import runner as experiment_runner
@@ -35,13 +29,13 @@ class RoutingResult:
         self.execution_time = execution_time
 
 
-class ExperimentWorker(QThread):
-    finished_signal = pyqtSignal(list)
+class ComparisonWorker(QThread):
+    finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
     
-    def __init__(self, topology, cases, algorithms, weights, repetitions):
+    def __init__(self, G, cases, algorithms, weights, repetitions):
         super().__init__()
-        self.topology = topology
+        self.G = G
         self.cases = cases
         self.algorithms = algorithms
         self.weights = weights
@@ -49,12 +43,66 @@ class ExperimentWorker(QThread):
         
     def run(self):
         try:
-            results = experiment_runner.run_custom_experiment(
-                self.topology, self.cases, self.algorithms, self.weights, self.repetitions
-            )
-            self.finished_signal.emit(results)
+            import time
+            from ..core import Metrics as mt
+            
+            # metrics = {algo: {'costs': [], 'times': []}}
+            data = {algo: {'costs': [], 'times': []} for algo in self.algorithms}
+            
+            # Weights
+            w_d = self.weights[0]
+            w_r = self.weights[1]
+            w_b = self.weights[2]
+            
+            for rep in range(self.repetitions):
+                for (src, dst, demand) in self.cases:
+                    for algo_name in self.algorithms:
+                        
+                        start_time = time.time()
+                        path = None
+                        
+                        try:
+                            if algo_name == "ACO Algoritma":
+                                weights_dict = {'delay': w_d, 'reliability': w_r, 'bandwidth': w_b}
+                                # Create new instance for fairness
+                                aco = AntColonyOptimizer(self.G, src, dst, demand, weights_dict, num_ants=10, max_iter=5)
+                                path, _, _ = aco.run()
+                                
+                            elif algo_name == "Genetik Algoritma":
+                                path = genetic_algorithm(self.G, src, dst, demand_mbps=demand, 
+                                                         w_delay=w_d, w_rel=w_r, w_band=w_b)
+                                
+                            elif algo_name == "Q-Learning Algoritma":
+                                params = {'alpha': 0.1, 'gamma': 0.9, 'epsilon': 0.1, 'episodes': 2000}
+                                agent = QLearningAgent(src, dst, self.G, alpha=params['alpha'], gamma=params['gamma'], epsilon=params['epsilon'], episodes=params['episodes'])
+                                agent.train()
+                                path = agent.get_best_path()
+                        except Exception:
+                            path = None # Fail safely
+                            
+                        duration = time.time() - start_time
+                        
+                        # Calculate Cost
+                        if path:
+                            d = mt.Total_Delay(self.G, path)
+                            r = mt.Total_Reliability(self.G, path)
+                            b = mt.Total_Bandwidth(self.G, path)
+                            
+                            # Penalty if bandwidth not met
+                            penalty = 500 if b < demand else 0
+                            
+                            cost = (w_d * d) + (w_r * r) + (w_b * (1000/(b+0.1))) + penalty
+                            
+                            data[algo_name]['costs'].append(cost)
+                            data[algo_name]['times'].append(duration)
+                        else:
+                            pass 
+
+            self.finished_signal.emit(data)
+            
         except Exception as e:
             self.error_signal.emit(str(e))
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -76,6 +124,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.graph_view, 3)
         
         # State
+        self.G = None # NetworkX Graph Container
         self.topology: Optional[NetworkTopology] = None
         self.source_id: Optional[int] = None
         self.target_id: Optional[int] = None
@@ -101,6 +150,9 @@ class MainWindow(QMainWindow):
         try:
             # Use the new generation logic from graf_uret
             G = generate_graf.graf_uret()
+            # Store Raw Graph
+            self.G = G
+            
             # Convert to our UI model
             self.topology = NetworkTopology.from_nx_graph(G)
             
@@ -156,7 +208,7 @@ class MainWindow(QMainWindow):
         self.controls.show_results(None) # Clear results on new selection
 
     def calculate_path(self):
-        if not self.topology:
+        if not self.topology or not self.G:
             QMessageBox.warning(self, "Uyarı", "Ağ oluşturulmadı.")
             return
         if self.source_id is None or self.target_id is None:
@@ -172,8 +224,10 @@ class MainWindow(QMainWindow):
 
         weights_tuple = self.controls.get_weights() 
         # Validate Weights
-        if sum(weights_tuple) <= 0:
-            QMessageBox.warning(self, "Uyarı", "Lütfen ağırlık değerlerini giriniz (Toplam > 0).")
+        # New Validation: Sum must be exactly 1.0 (with small epsilon for float)
+        total_weight = sum(weights_tuple)
+        if abs(total_weight - 1.0) > 1e-5:
+            QMessageBox.warning(self, "Uyarı", f"Ağırlıkların toplamı 1 olmalıdır. (Şu anki toplam: {total_weight:.2f})")
             return
 
         weights_dict = {
@@ -188,7 +242,8 @@ class MainWindow(QMainWindow):
             start_time = time.time()
             final_path = None
             
-            G_algo = generate_graf.graf_uret()
+            # Use stored graph
+            G_algo = self.G
             
             if algo_name == "ACO Algoritma":
                 aco = AntColonyOptimizer(
@@ -214,7 +269,7 @@ class MainWindow(QMainWindow):
                     w_band=weights_dict['bandwidth']
                 )
                 final_path = best_path
-
+ 
             elif algo_name == "Q-Learning Algoritma":
                 agent = QLearningAgent(self.source_id, self.target_id, G=G_algo)
                 agent.train() 
@@ -284,12 +339,11 @@ class MainWindow(QMainWindow):
                 b = random.uniform(10.0, 80.0)
                 cases.append((s, d, b))
                 count += 1
-
                 
         self.controls.add_cases_batch(cases)
 
     def run_custom_experiment(self):
-        if not self.topology:
+        if not self.topology or not self.G:
              QMessageBox.warning(self, "Uyarı", "Önce topoloji oluşturun.")
              return
         
@@ -305,29 +359,36 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Uyarı", "Lütfen en az bir algoritma seçin.")
             return
 
-        # Pass algorithm names directly as runner.py now handles full names
-        algorithms = algo_names
-
-            
         weights = self.controls.get_weights() 
         
+        # Validate Weights for Experiment
+        total_weight = sum(weights)
+        if abs(total_weight - 1.0) > 1e-5:
+            QMessageBox.warning(self, "Uyarı", f"Ağırlıkların toplamı 1 olmalıdır. (Şu anki toplam: {total_weight:.2f})")
+            return
+        
         # Start Worker
-        self.worker = ExperimentWorker(self.topology, cases, algorithms, weights, reps)
+        # Use CORRECT G
+        self.worker = ComparisonWorker(self.G, cases, algo_names, weights, reps)
         self.worker.finished_signal.connect(self.on_experiment_finished)
         self.worker.error_signal.connect(self.on_experiment_error)
         
-        self.statusBar().showMessage("Deney çalışıyor, lütfen bekleyin...")
+        self.statusBar().showMessage("Karşılaştırma yapılıyor, lütfen bekleyin...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.controls.setEnabled(False) 
         
         self.worker.start()
 
     def on_experiment_finished(self, results):
-        self.statusBar().showMessage("Hazır")
+        self.statusBar().showMessage("Deney Tamamlandı")
         QApplication.restoreOverrideCursor()
         self.controls.setEnabled(True)
         
-        # Show Results
+        # Show Results Dialog
+        dlg = ResultsDialog(results, self)
+        dlg.exec()
+
+        # Show Results Dialog
         dlg = ResultsDialog(results, self)
         dlg.exec()
 

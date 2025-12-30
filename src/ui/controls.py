@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QComboBox, QDoubleSpinBox, QPushButton, QGroupBox, QFormLayout, QSpinBox,
     QTabWidget, QListWidget, QListWidgetItem, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox
+    QCheckBox, QScrollArea, QFrame
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -12,7 +12,22 @@ class SingleAnalysisPanel(QWidget):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.layout = QVBoxLayout(self)
+        
+        # Main layout for the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        # Container for content
+        content_widget = QWidget()
+        self.layout = QVBoxLayout(content_widget) # Redefine self.layout
+        
+        scroll.setWidget(content_widget)
+        main_layout.addWidget(scroll)
         
         # 1. Network Generation
         gen_group = QGroupBox("Ağ (Network)")
@@ -60,30 +75,47 @@ class SingleAnalysisPanel(QWidget):
         algo_layout.addWidget(self.combo_algo)
         
         # Weights
-        weight_layout = QFormLayout()
+        # Flattened layout structure for better stability
+        
         self.spin_delay = QDoubleSpinBox()
         self.spin_delay.setRange(0, 1); self.spin_delay.setSingleStep(0.01); self.spin_delay.setValue(0.00)
+        
         self.spin_reliability = QDoubleSpinBox()
         self.spin_reliability.setRange(0, 1); self.spin_reliability.setSingleStep(0.01); self.spin_reliability.setValue(0.00)
+        
         self.spin_resource = QDoubleSpinBox()
         self.spin_resource.setRange(0, 1); self.spin_resource.setSingleStep(0.01); self.spin_resource.setValue(0.00)
 
+        # Helper to add rows directly to algo_layout
+        def add_weight_row_direct(label_text, spinbox):
+            row_layout = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setMinimumWidth(110) 
+            row_layout.addWidget(lbl)
+            row_layout.addWidget(spinbox)
+            algo_layout.addLayout(row_layout)
+            algo_layout.addSpacing(2) # Reduced spacing between rows
 
+        algo_layout.addSpacing(5) # Reduced spacing before weights
+        add_weight_row_direct("Gecikme Ağ.:", self.spin_delay)
+        add_weight_row_direct("Güvenilirlik Ağ.:", self.spin_reliability)
+        add_weight_row_direct("Kaynak Ağ.:", self.spin_resource)
 
+        # Connect signals for dynamic limits
+        self.spin_delay.valueChanged.connect(self.update_weight_limits)
+        self.spin_reliability.valueChanged.connect(self.update_weight_limits)
+        self.spin_resource.valueChanged.connect(self.update_weight_limits)
 
-        
-        weight_layout.addRow("Gecikme Ağ.:", self.spin_delay)
-        weight_layout.addRow("Güvenilirlik Ağ.:", self.spin_reliability)
-        weight_layout.addRow("Kaynak Ağ.:", self.spin_resource)
-
-
-        algo_layout.addLayout(weight_layout)
+        # Add some spacing before button
+        algo_layout.addSpacing(5)
         
         self.btn_calculate = QPushButton("En İyi Yolu Hesapla")
+        self.btn_calculate.setStyleSheet("font-weight: bold; padding: 8px;")
         algo_layout.addWidget(self.btn_calculate)
         
         algo_group.setLayout(algo_layout)
         self.layout.addWidget(algo_group)
+        
         
         # 4. Results
         res_group = QGroupBox("Metrikler")
@@ -101,11 +133,44 @@ class SingleAnalysisPanel(QWidget):
         res_layout.addRow("Kaynak Maliyeti:", self.lbl_res_bw)
         res_layout.addRow("Toplam Maliyet:", self.lbl_res_cost)
         res_layout.addRow("Çalışma Süresi:", self.lbl_res_time)
-        res_layout.addRow("Bulunan Yol:", self.lbl_res_path) # Changed label distinctness
+        res_layout.addRow("Bulunan Yol:", self.lbl_res_path)
         res_group.setLayout(res_layout)
         self.layout.addWidget(res_group)
         
         self.layout.addStretch()
+
+        # Initialize limits
+        self.update_weight_limits()
+
+    def update_weight_limits(self):
+        """
+        Dynamically update the maximum value of each spinbox so that
+        the user cannot enter values that sum to more than 1.0.
+        Optimized to prevent excessive UI updates.
+        """
+        d = self.spin_delay.value()
+        r = self.spin_reliability.value()
+        b = self.spin_resource.value()
+        
+        current_sum = d + r + b
+        remaining = 1.0 - current_sum
+        if remaining < 0: remaining = 0
+        
+        # Calculate targets
+        target_d = min(1.0, round(d + remaining, 2))
+        target_r = min(1.0, round(r + remaining, 2))
+        target_b = min(1.0, round(b + remaining, 2))
+        
+        # Helper to set max only if changed
+        def set_max_if_needed(spinbox, target):
+            if abs(spinbox.maximum() - target) > 1e-4:
+                spinbox.blockSignals(True)
+                spinbox.setMaximum(target)
+                spinbox.blockSignals(False)
+
+        set_max_if_needed(self.spin_delay, target_d)
+        set_max_if_needed(self.spin_reliability, target_r)
+        set_max_if_needed(self.spin_resource, target_b)
 
 class ExperimentPanel(QWidget):
     """
@@ -204,6 +269,8 @@ class ExperimentPanel(QWidget):
         
         set_group.setLayout(set_layout)
         layout.addWidget(set_group)
+        
+
         
         # 4. Run
         self.btn_run_exp = QPushButton("Deneyi Başlat")
